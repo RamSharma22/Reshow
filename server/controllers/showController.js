@@ -100,10 +100,16 @@ export const getShows = async (req, res) => {
       .populate("movie")
       .sort({ showDateTime: 1 });
 
-    // filter unique shows
-    const uniqueShows = new Set(shows.map((show) => show.movie));
+    // filter unique shows by movie _id
+    const uniqueMoviesMap = new Map();
+    shows.forEach((show) => {
+      const movie = show.movie;
+      if (movie && !uniqueMoviesMap.has(String(movie._id))) {
+        uniqueMoviesMap.set(String(movie._id), movie);
+      }
+    });
 
-    res.json({ success: true, shows: Array.from(uniqueShows) });
+    res.json({ success: true, shows: Array.from(uniqueMoviesMap.values()) });
   } catch (error) {
     console.error(error);
     res.json({ success: false, message: error.message });

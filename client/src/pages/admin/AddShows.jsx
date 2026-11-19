@@ -11,6 +11,8 @@ const AddShows = () => {
 
   const currency = import.meta.env.VITE_CURRENCY;
   const [nowPlayingMovies, setNowPlayingMovies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState(null);
   const [dateTimeSelection, setDateTimeSelection] = useState({});
   const [dateTimeInput, setDateTimeInput] = useState("");
@@ -19,15 +21,24 @@ const AddShows = () => {
 
   const fetchNowPlayingMovies = async () => {
     try {
+      setLoading(true);
+      setFetchError(false);
       const { data } = await axios.get("/api/show/now-playing", {
         headers: { Authorization: `Bearer ${await getToken()}` },
       });
 
       if (data.success) {
         setNowPlayingMovies(data.movies);
+      } else {
+        toast.error(data.message || "Failed to fetch movies");
+        setFetchError(true);
       }
     } catch (error) {
       console.error("Error fetching movies:", error);
+      toast.error("Could not load movies. Is the server running?");
+      setFetchError(true);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -108,7 +119,24 @@ const AddShows = () => {
     }
   }, [user]);
 
-  return nowPlayingMovies.length > 0 ? (
+  if (loading) return <Loading />;
+
+  if (fetchError || nowPlayingMovies.length === 0)
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <p className="text-gray-400 text-lg">
+          {fetchError ? "Failed to load movies." : "No now-playing movies found."}
+        </p>
+        <button
+          onClick={fetchNowPlayingMovies}
+          className="bg-primary text-white px-6 py-2 rounded hover:bg-primary/90 transition cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    );
+
+  return (
     <>
       <Title text1="Add" text2="Shows" />
       <p className="mt-10 text-lg font-medium">Now Playing Movies</p>
@@ -222,8 +250,6 @@ const AddShows = () => {
         Add Show
       </button>
     </>
-  ) : (
-    <Loading />
   );
 };
 

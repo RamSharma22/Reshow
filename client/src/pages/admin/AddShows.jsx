@@ -11,6 +11,7 @@ const AddShows = () => {
 
   const currency = import.meta.env.VITE_CURRENCY;
   const [nowPlayingMovies, setNowPlayingMovies] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [selectedMovie, setSelectedMovie] = useState(null);
@@ -23,15 +24,39 @@ const AddShows = () => {
     try {
       setLoading(true);
       setFetchError(false);
-      const { data } = await axios.get("/api/show/now-playing", {
-        headers: { Authorization: `Bearer ${await getToken()}` },
-      });
 
-      if (data.success) {
-        setNowPlayingMovies(data.movies);
+      // 1. Try to fetch from /api/show/now-playing
+      let fetchedMovies = null;
+      try {
+        const { data } = await axios.get("/api/show/now-playing", {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        });
+
+        if (data.success && Array.isArray(data.movies) && data.movies.length > 0) {
+          fetchedMovies = data.movies;
+        }
+      } catch (err) {
+        console.warn("Primary endpoint /api/show/now-playing failed:", err.message);
+      }
+
+      // 2. If primary endpoint returned nothing or failed (e.g. 401), fall back to /api/show/all
+      if (!fetchedMovies) {
+        try {
+          const { data: showsData } = await axios.get("/api/show/all");
+          if (showsData.success && Array.isArray(showsData.shows) && showsData.shows.length > 0) {
+            fetchedMovies = showsData.shows;
+          }
+        } catch (fallbackErr) {
+          console.warn("Fallback to /api/show/all failed:", fallbackErr.message);
+        }
+      }
+
+      if (fetchedMovies && fetchedMovies.length > 0) {
+        setNowPlayingMovies(fetchedMovies);
+        setFetchError(false);
       } else {
-        toast.error(data.message || "Failed to fetch movies");
         setFetchError(true);
+        toast.error("Failed to load movies. Please check backend connection.");
       }
     } catch (error) {
       console.error("Error fetching movies:", error);
@@ -136,44 +161,67 @@ const AddShows = () => {
       </div>
     );
 
+  const filteredMovies = nowPlayingMovies.filter((movie) =>
+    movie.title?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <>
       <Title text1="Add" text2="Shows" />
-      <p className="mt-10 text-lg font-medium">Now Playing Movies</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-8">
+        <p className="text-lg font-medium">
+          Select Movie ({nowPlayingMovies.length} available)
+        </p>
+        <input
+          type="text"
+          placeholder="Search movie..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="border border-gray-600 bg-transparent px-3 py-1.5 rounded-md text-sm outline-none max-w-xs focus:border-primary transition"
+        />
+      </div>
+
       <div className="overflow-x-auto pb-4">
-        <div className="group flex flex-wrap gap-4 mt-4 w-max">
-          {nowPlayingMovies.map((movie) => (
-            <div
-              key={movie.id}
-              className={`relative max-w-40 cursor-pointer group-hover:not-hover:opacity-40 hover:-translate-y-1 transition duration-300`}
-              onClick={() => setSelectedMovie(movie.id)}
-            >
-              <div className="relative rounded-lg overflow-hidden">
-                <img
-                  src={image_base_url + movie.poster_path}
-                  alt="movie_poster"
-                  className="w-full object-cover brightness-90"
-                />
-                <div className="text-sm flex items-center justify-between p-2 bg-black/70 w-full absolute bottom-0 left-0">
-                  <p className="flex items-center gap-1 text-gray-400">
-                    <StarIcon className="w-4 h-4 text-primary fill-primary" />
-                    {movie.vote_average.toFixed(1)}
-                  </p>
-                  <p className="text-gray-300">
-                    {kConverter(movie.vote_count)} Votes
-                  </p>
+        {filteredMovies.length === 0 ? (
+          <p className="text-gray-400 mt-4">No movies found matching "{searchQuery}"</p>
+        ) : (
+          <div className="group flex flex-wrap gap-4 mt-4 w-max">
+            {filteredMovies.map((movie) => {
+              const movieId = String(movie.id || movie._id);
+              return (
+                <div
+                  key={movieId}
+                  className={`relative max-w-40 cursor-pointer group-hover:not-hover:opacity-40 hover:-translate-y-1 transition duration-300`}
+                  onClick={() => setSelectedMovie(movieId)}
+                >
+                  <div className="relative rounded-lg overflow-hidden">
+                    <img
+                      src={movie.poster_path ? image_base_url + movie.poster_path : "/placeholder.png"}
+                      alt={movie.title}
+                      className="w-full object-cover brightness-90 aspect-[2/3]"
+                    />
+                    <div className="text-sm flex items-center justify-between p-2 bg-black/70 w-full absolute bottom-0 left-0">
+                      <p className="flex items-center gap-1 text-gray-400">
+                        <StarIcon className="w-4 h-4 text-primary fill-primary" />
+                        {(movie.vote_average ?? 0).toFixed(1)}
+                      </p>
+                      <p className="text-gray-300">
+                        {kConverter(movie.vote_count ?? 120)} Votes
+                      </p>
+                    </div>
+                  </div>
+                  {selectedMovie === movieId && (
+                    <div className="absolute top-2 right-2 flex items-center justify-center bg-primary h-6 w-6 rounded">
+                      <CheckIcon className="w-4 h-4 text-white" strokeWidth={2.5} />
+                    </div>
+                  )}
+                  <p className="font-medium truncate">{movie.title}</p>
+                  <p className="text-gray-400 text-sm">{movie.release_date}</p>
                 </div>
-              </div>
-              {selectedMovie === movie.id && (
-                <div className="absolute top-2 right-2 flex items-center justify-center bg-primary h-6 w-6 rounded">
-                  <CheckIcon className="w-4 h-4 text-white" strokeWidth={2.5} />
-                </div>
-              )}
-              <p className="font-medium truncate">{movie.title}</p>
-              <p className="text-gray-400 text-sm">{movie.release_date}</p>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Show Price Input */}

@@ -3,20 +3,68 @@ import Movie from "../models/Movie.js";
 import Show from "../models/Show.js";
 import { inngest } from "../inngest/index.js";
 
-// API to get now playing movies from TMDB API
+// API to get now playing and database movies
 export const getNowPlayingMovies = async (req, res) => {
   try {
-    const { data } = await axios.get(
-      "https://api.themoviedb.org/3/movie/now_playing",
-      {
-        headers: { Authorization: `Bearer ${process.env.TMDB_API_KEY}` },
-      }
-    );
+    // 1. Fetch all movies from the MongoDB database
+    const dbMovies = await Movie.find().sort({ createdAt: -1 }).lean();
 
-    const movies = data.results;
-    res.json({ success: true, movies: movies });
+    const formattedDbMovies = dbMovies.map((movie) => ({
+      id: String(movie._id),
+      _id: String(movie._id),
+      title: movie.title,
+      overview: movie.overview || "",
+      poster_path: movie.poster_path || "",
+      backdrop_path: movie.backdrop_path || "",
+      release_date: movie.release_date || "",
+      vote_average: typeof movie.vote_average === "number" ? movie.vote_average : 0,
+      vote_count: movie.vote_count || 120,
+      genres: movie.genres || [],
+      runtime: movie.runtime || 120,
+    }));
+
+    // Map by ID to prevent duplicates
+    const moviesMap = new Map();
+    formattedDbMovies.forEach((m) => moviesMap.set(String(m.id), m));
+
+    // 2. Attempt to fetch now-playing movies from TMDB API to enrich the list
+    if (process.env.TMDB_API_KEY) {
+      try {
+        const { data } = await axios.get(
+          "https://api.themoviedb.org/3/movie/now_playing",
+          {
+            headers: { Authorization: `Bearer ${process.env.TMDB_API_KEY}` },
+            timeout: 5000,
+          }
+        );
+
+        if (data && Array.isArray(data.results)) {
+          data.results.forEach((tmdbMovie) => {
+            const mId = String(tmdbMovie.id);
+            if (!moviesMap.has(mId)) {
+              moviesMap.set(mId, {
+                id: mId,
+                _id: mId,
+                title: tmdbMovie.title,
+                overview: tmdbMovie.overview || "",
+                poster_path: tmdbMovie.poster_path || "",
+                backdrop_path: tmdbMovie.backdrop_path || "",
+                release_date: tmdbMovie.release_date || "",
+                vote_average: typeof tmdbMovie.vote_average === "number" ? tmdbMovie.vote_average : 0,
+                vote_count: tmdbMovie.vote_count || 100,
+              });
+            }
+          });
+        }
+      } catch (tmdbError) {
+        console.warn("TMDB fetch failed, falling back to database movies:", tmdbError.message);
+      }
+    }
+
+    const movies = Array.from(moviesMap.values());
+    res.json({ success: true, movies });
   } catch (error) {
-    console.error(error);
+    console.error("Error in getNowPlayingMovies:", error);
     res.json({ success: false, message: error.message });
   }
 };
